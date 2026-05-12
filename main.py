@@ -6,131 +6,171 @@ from rich.table import Table
 from rich.align import Align
 from rich.text import Text
 from rich.status import Status
-from rich.progress import Progress, TextColumn, BarColumn, TaskProgressColumn
+from rich.progress import Progress, TextColumn, BarColumn
+from rich.columns import Columns
 from rich import box
+import os
 
-from analyzers.url_analyzer import extract_urls, analyze_url
+# Core Analysis Logic (Assuming these exist in your project)
+from analyzers.url_analyzer import extract_urls, analyze_url, extract_headers
 
 console = Console()
-def print_banner():
-    """Prints a clean ASCII-based banner."""
-    banner_text = Text.assemble(
-        ("\n PHISH", "bold white"),
-        ("GUARD ", "bold red"),
-        ("v1.0", "dim cyan"),
-        ("\n SOC ANALYSIS FRAMEWORK", "grey50")
-    )
-    
-    header = Panel(
-        Align.center(banner_text),
-        box=box.SQUARE,
-        style="on #121212",
-        padding=(1, 2)
-    )
-    console.print(header)
-    console.print("[grey15]" + "—" * console.width + "[/grey15]")
 
-def run_initialization():
-    """Simulates system startup sequence."""
-    with Status("[bold white][wait] Initializing engines...", spinner="dots", console=console) as status:
-        time.sleep(0.6)
-        status.update("[bold white][load] Loading URL Blacklists...")
-        time.sleep(0.5)
-        status.update("[bold white][conn] Connecting to Heuristic Engine...")
-        time.sleep(0.5)
-    console.print("[bold green][ready][/bold green] System initialized and ready.")
+def clear_screen():
+    os.system('cls' if os.name == 'nt' else 'clear')
+
+clear_screen()
+
+def get_banner():
+    """Returns the high-detail 3D ASCII banner."""
+    # Using your provided 3D Isometric ASCII
+    isometric_ascii = r"""
+    ██████╗ ██╗  ██╗██╗███████╗██╗  ██╗ ██████╗ ██╗   ██╗ █████╗ ██████╗ ██████╗ 
+    ██╔══██╗██║  ██║██║██╔════╝██║  ██║██╔════╝ ██║   ██║██╔══██╗██╔══██╗██╔══██╗
+    ██████╔╝███████║██║███████╗███████║██║  ███╗██║   ██║███████║██████╔╝██║  ██║
+    ██╔═══╝ ██╔══██║██║╚════██║██╔══██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║
+    ██║     ██║  ██║██║███████║██║  ██║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝
+    ╚═╝     ╚═╝  ╚═╝╚═╝╚══════╝╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ 
+                                                                                                                                                                                                                                                                                                            
+    """
+    banner_text = Text(isometric_ascii, style="bold green", overflow="ignore", no_wrap=True)
+    
+    # Adding a clean sub-header
+    sub_header = Text("\n── SOC ANALYST TOOLKIT | THREAT INTELLIGENCE ENGINE ──", style="bold cyan")
+    
+    return Panel(
+        Align.center(Text.assemble(banner_text, sub_header)),
+        border_style="none",
+        padding=(0, 1),
+        # width=100
+    )
+
+def get_stats_panel(url_count):
+    stats_table = Table.grid(expand=True)
+    stats_table.add_column(style="cyan", justify="left")
+    stats_table.add_column(style="white", justify="right")
+    stats_table.add_row("System Status:", "[bold green]PROTECTED[/bold green]")
+    stats_table.add_row("Active URLs:", f"{url_count}")
+    stats_table.add_row("Session ID:", f"THREAT-{int(time.time()) % 10000}")
+    
+    return Panel(stats_table, title="[bold white]TELEMETRY[/bold white]", border_style="red")
 
 def main():
-    # 1. Argument Check
     if len(sys.argv) < 2:
-        console.print("\n[bold red][error][/bold red] Missing email file path.")
-        console.print("[dim]Usage: python3 main.py <email_file>[/dim]\n")
+        console.print("\n[bold red]✘ ERROR:[/bold red] Target email file not specified.")
         sys.exit()
 
     file_path = sys.argv[1]
     
-    # 2. Setup
-    print_banner()
-    run_initialization()
-
-    # 3. File Loading
-    try:
-        with Status(f"[grey70]Reading {file_path}...", spinner="dots"):
+    # 1. Initialization
+    console.print(get_banner())
+    
+    with Status("[bold white]Parsing headers...", spinner="point", console=console):
+        time.sleep(0.5)
+        try:
             with open(file_path, "r", encoding="utf-8") as file:
                 email_content = file.read()
-            time.sleep(0.4)
-        console.print(f"[bold cyan][file][/bold cyan] Loaded: [white]{file_path}[/white]")
-    except Exception as e:
-        console.print(f"[bold red][error][/bold red] Could not read file: {e}")
-        sys.exit()
+        except Exception as e:
+            console.print(f"[bold red]CRITICAL FILE ERROR:[/bold red] {e}")
+            sys.exit()
 
-    # 4. Email Preview
-    preview_text = Text(email_content[:300].strip() + "...", style="grey62")
-    console.print(
-        Panel(
-            preview_text,
-            title="[bold yellow]RAW PREVIEW[/bold yellow]",
-            title_align="left",
-            border_style="grey30",
-            padding=(1, 2)
-        )
+    urls = extract_urls(email_content)
+    headers = extract_headers(file_path)
+
+    preview = Panel(
+        Text(email_content[:280].strip() + "...", style="grey62"),
+        title="[bold yellow]RAW CONTENT INSPECTOR[/bold yellow]",
+        border_style="grey30",
+        expand=True
+    )
+    
+    console.print(Columns([preview, get_stats_panel(len(urls))], expand=True))
+
+    headers_table = Table(
+        title="[bold yellow]EMAIL HEADERS[/bold yellow]",
+        border_style="grey30",
+        box=box.MINIMAL,
+        expand=True
     )
 
-    # 5. Extraction & Processing
-    urls = extract_urls(email_content)
+    headers_table.add_column(
+        "Header",
+        style="bold cyan",
+        width=25
+    )
+
+    headers_table.add_column(
+        "Value",
+        style="white"
+    )
+
+    for item in headers:
+        status = item["status"]
+
+        if "failed" in status.lower():
+            status = f"[bold red]{status}[/bold red]"
+
+        elif "suspicious" in status.lower():
+            status = f"[bold yellow]{status}[/bold yellow]"
+
+        elif "pass" in status.lower():
+            status = f"[bold green]{status}[/bold green]"
+
+        headers_table.add_row(
+            item["field"],
+            item["value"],
+            status
+    )
+
+    console.print(headers_table)
 
     if not urls:
-        console.print("\n[bold green][clean][/bold green] No URLs detected in the email body.")
+        console.print("\n[bold green]✔[/bold green] [white]Zero suspicious links identified in content body.[/white]")
     else:
-        console.print(f"\n[bold cyan][scan][/bold cyan] Found {len(urls)} URLs. Running reputation checks...\n")
-        
+        # 3. Threat Table
         results_table = Table(
-            title="[bold red]URL REPUTATION REPORT[/bold red]",
-            title_justify="left",
             show_header=True,
-            header_style="bold magenta",
+            header_style="bold white on red",
             border_style="grey37",
             expand=True,
-            box=box.SQUARE
+            box=box.MINIMAL
         )
         
-        results_table.add_column("ID", style="dim", width=4)
-        results_table.add_column("Domain / Host", style="bold white", width=25)
-        results_table.add_column("Full URL", style="cyan")
-        results_table.add_column("Risk Score", justify="center")
+        results_table.add_column("RANK", width=6, justify="center")
+        results_table.add_column("DOMAIN AUTHORITY", style="bold white")
+        results_table.add_column("URL STRING", style="dim", ratio=2)
+        results_table.add_column("THREAT SCORE", justify="right")
 
         with Progress(
-            TextColumn("[bold blue][{task.description}]"),
-            BarColumn(bar_width=None, pulse_style="red"),
-            TaskProgressColumn(),
+            TextColumn("[bold red]>[/bold red] Investigating: [cyan]{task.fields[url]}"),
+            BarColumn(bar_width=None, pulse_style="bright_red"),
             console=console,
-            transient=True # Removes the progress bar when finished
+            transient=True 
         ) as progress:
             
-            task = progress.add_task("analyzing", total=len(urls))
+            task = progress.add_task("investigating", total=len(urls), url="")
             
             for i, url in enumerate(urls, 1):
-                # Simulated processing
+                progress.update(task, url=url[:35])
                 result = analyze_url(url)
-                time.sleep(0.8) 
+                time.sleep(0.7) 
                 
-                # Risk Logic
-                is_suspicious = any(x in url for x in ["xyz", "bit.ly", "short", "login"])
-                risk_color = "red" if is_suspicious else "green"
-                risk_text = "HIGH" if is_suspicious else "LOW"
+                # Simple Risk Heuristic
+                suspicious = any(k in url.lower() for k in ["secure", "update", "verify", "bit.ly", "cmd"])
+                risk_label = "[bold red]MALICIOUS[/bold red]" if suspicious else "[bold green]CLEAN[/bold green]"
                 
                 results_table.add_row(
-                    f"{i:02d}",
+                    f"#{i}",
                     result["full_domain"],
-                    result["url"],
-                    f"[{risk_color}]{risk_text}[/{risk_color}]"
+                    url,
+                    risk_label
                 )
                 progress.advance(task)
 
-        # 6. Final Results
         console.print(results_table)
 
-    console.print(f"\n[dim italic]Analysis finished at {time.strftime('%H:%M:%S')}[/dim italic]\n")
+    # 4. Footer
+    console.print(Align.right(f"[dim]ANALYSIS COMPLETE | {time.strftime('%Y-%m-%d %H:%M:%S')}[/dim]"))
 
 if __name__ == "__main__":
     main()

@@ -2,9 +2,12 @@ import re
 import tldextract
 from email import policy
 from email.parser import BytesParser
+from bs4 import BeautifulSoup
+from analyzers.iplookup import lookip
 
 def extract_urls(text):
-    url_pattern = r'https?://[^\s]+'
+    # Improved regex to avoid capturing trailing quotes, brackets, etc.
+    url_pattern = r'https?://[^\s"\'><\(\)\[\]]+'
     return re.findall(url_pattern, text)
 
 def analyze_url(url):
@@ -16,7 +19,6 @@ def analyze_url(url):
         "suffix": extracted.suffix,
         "full_domain": f"{extracted.domain}.{extracted.suffix}"
     }
-
 
 def extract_headers(file_path):
 
@@ -52,6 +54,7 @@ def extract_headers(file_path):
     received_headers = msg.get_all("Received", [])
 
     ip_match = None
+    loc = None
 
     for header in received_headers:
 
@@ -62,7 +65,9 @@ def extract_headers(file_path):
 
         if match:
             ip_match = match.group()
+            loc = lookip(ip_match)
             break
+        
 
     return [
         {
@@ -124,6 +129,16 @@ def extract_headers(file_path):
         },
 
         {
+            "field": "Location",
+            "value": loc or "not confidently extracted",
+            "status": (
+                "extracted"
+                if loc
+                else "— not found"
+            )
+        },
+
+        {
             "field": "X-Mailer",
             "value": x_mailer or "—",
             "status": (
@@ -133,3 +148,92 @@ def extract_headers(file_path):
             )
         }
     ]
+
+def extract_html(email_content):
+    msg = BytesParser(
+        policy=policy.default
+    ).parsebytes(email_content.encode())
+
+    if msg.is_multipart():
+        for part in msg.walk():
+            if part.get_content_type() == 'text/html':
+                return part.get_content()
+    else:
+        if msg.get_content_type() == 'text/html':
+            return msg.get_content()
+
+    # Fallback: check if the content looks like HTML
+    lowered = email_content.lower()
+    if (
+        "<html" in lowered
+        or "<table" in lowered
+        or "<body" in lowered
+        or "<meta" in lowered
+    ):
+        return email_content
+
+    return ""
+
+def analyze_html(html_content):
+
+    soup = BeautifulSoup(
+        html_content,
+        "html.parser"
+    )
+
+    findings = []
+
+    images = soup.find_all("img")
+
+    for img in images:
+
+        width = str(
+            img.get("width", "")
+        ).lower()
+
+        height = str(
+            img.get("height", "")
+        ).lower()
+
+        style = str(
+            img.get("style", "")
+        ).lower()
+
+        hidden = (
+            "visibility:hidden" in style
+            or "display:none" in style
+            or "opacity:0" in style
+        )
+
+        tiny = (
+            width in ["1", "1px"]
+            or height in ["1", "1px"]
+        )
+
+        if tiny or hidden:
+
+            findings.append(
+                {
+                    "type": "Tracking Pixel",
+                    "severity": "HIGH",
+                    "value": img.get("src", "unknown")
+                }
+            )
+
+    links = soup.find_all("a")
+
+    for link in links:
+
+        href = link.get("href", "")
+
+        if href.startswith("mailto:"):
+
+            findings.append(
+                {
+                    "type": "Mailto Link",
+                    "severity": "MEDIUM",
+                    "value": href
+                }
+            )
+
+    return findings
